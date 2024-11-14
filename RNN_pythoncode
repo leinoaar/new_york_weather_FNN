@@ -165,7 +165,7 @@ plt.show()
 
 # Koska hyperbolisen tangentin ja sigmoidin virhe oli vielä niin suuri niin ajetaan 200 epookin koulutus kummallekin mallille ja katsotaan tulokset.
 
-extended_sigmoid_trained = sigmoid_model.fit(X_train, y_train, epochs=1000, batch_size=8, verbose=1, validation_data=(X_val, y_val))
+extended_sigmoid_trained = sigmoid_model.fit(X_train, y_train, epochs=200, batch_size=8, verbose=1, validation_data=(X_val, y_val))
 extended_tanh_trained = tanh_model.fit(X_train, y_train, epochs=200, batch_size=8, verbose=1, validation_data=(X_val, y_val))
 
 mse, mae = sigmoid_model.evaluate(X_val, y_val, verbose=0)
