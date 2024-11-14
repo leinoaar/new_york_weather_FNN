@@ -1,0 +1,189 @@
+#ladataan tarvittavat kirjastot neuroverkon luomiseksi
+import tensorflow as tf
+from tensorflow.keras.models import Sequential 
+from tensorflow.keras.layers import Dense
+import numpy as np
+from sklearn.model_selection import train_test_split
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+import random
+
+# Asetetaan Seed koodin uudelleenkäytettävyyttä varten
+Seed = 2024
+np.random.seed(Seed)
+tf.random.set_seed(Seed)
+random.seed(Seed)
+
+##ENSIMMÄINEN VAIHE: AINEISTON ESIKÄSITTELY
+
+# Ladataan aineisto ja varmistetaan vielä mahdolliset puuttuvat arvot
+path = 'C:/Users/leino/Downloads/nyc_temperature.csv'
+df = pd.read_csv(path)
+print(df.head())
+print(df.info())
+
+# muutetaan päivämäärä erikseen kuukausiksi ja viikonpäiviksi
+df['date'] = pd.to_datetime(df['date'], dayfirst=True, format='%d/%m/%y')
+df['month'] = df['date'].dt.month
+df['weekday'] = df['date'].dt.weekday
+df = df.drop('date', axis=1)
+
+# jätetään lumeen liittyvät tilastot pois mallin yksinkertaistamiseksi
+df = df[['tmax', 'tmin', 'HDD', 'CDD', 'precipitation', 'month', 'weekday', 'tavg']]
+
+# sademääräsarakkeessa on ilmaistu kirjaimella T, jos sadetta on hyvin vähän. Muutetaan ne 0.001, jotta pienet sateet tulee huomioitua myös.
+df['precipitation'] = df['precipitation'].replace("T", 0.001).astype(float)
+
+# erotetaan aineistosta tavoitemuuttaja syötemuuttujista
+X = df.drop('tavg', axis=1)                # eli syöte
+y = df['tavg']                             # eli tavoite
+
+# skaalataan aineisto välille [0,1], jotta muutujien painotus on tasaisempi
+scaler = MinMaxScaler(feature_range=(0, 1))
+X = scaler.fit_transform(X)
+
+# jaetaan aineisto vielä koulutus- ja validaatioaineistoksi painolla 80% ja 20%
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=2024)
+
+
+## TOINEN VAIHE: NEUROVERKKOJEN RAKENTAMINEN
+
+# Rakennetaan ensin neuroverkko ReLU-aktivointifunktiolla
+activationfunc_relu = 'relu'
+relu_model = Sequential([
+    Dense(10, activation=activationfunc_relu, input_shape=(X_train.shape[1],)),  # Ensimmäinen piilokerros
+    Dense(10, activation=activationfunc_relu),                                   # Toinen piilokerros
+    Dense(10, activation=activationfunc_relu),                                   # Kolmas piilokerros
+    Dense(10, activation=activationfunc_relu),                                   # Neljäs piilokerros
+    Dense(1)                                                                     # Lähtökerros. Aktivointifunktiota ei mainita, koska käytetään lineaarista aktivointifunktiota (oletus).
+])
+
+# Seuraavaksi rakennetaan sigmoid-malli
+activationfunc_sigmoid = 'sigmoid'
+sigmoid_model = Sequential([
+    Dense(10, activation=activationfunc_sigmoid, input_shape=(X_train.shape[1],)),  # Ensimmäinen piilokerros
+    Dense(10, activation=activationfunc_sigmoid),                                   # Toinen piilokerros
+    Dense(10, activation=activationfunc_sigmoid),                                   # Kolmas piilokerros
+    Dense(10, activation=activationfunc_sigmoid),                                   # Neljäs piilokerros
+    Dense(1)                                                                        # Lähtökerros
+])
+
+#Viimeisenä hyperbolinen tangenttimalli
+activationfunc_tanh = 'tanh'
+tanh_model = Sequential([
+    Dense(10, activation=activationfunc_tanh, input_shape=(X_train.shape[1],)),  # Ensimmäinen piilokerros
+    Dense(10, activation=activationfunc_tanh),                                   # Toinen piilokerros
+    Dense(10, activation=activationfunc_tanh),                                   # Kolmas piilokerros
+    Dense(10, activation=activationfunc_tanh),                                   # Neljäs piilokerros
+    Dense(1)                                                                     # Lähtökerros
+])
+
+## KOLMAS VAIHE: MALLIN KOKOAMINEN
+
+# Kootaan jokainen malli vuorollaan. Aloitetaan ReLU-mallista
+relu_model.compile(optimizer = 'adam', loss= 'mse', metrics=['mae'])
+
+# Sitten sigmoid
+sigmoid_model.compile(optimizer = 'adam', loss= 'mse', metrics=['mae'])
+
+# Ja viimeisenä hyperbolinen tangentti
+tanh_model.compile(optimizer = 'adam', loss= 'mse', metrics=['mae'])
+
+
+## NELJÄS VAIHE: MALLIN KOULUTUS
+
+# Koulutetaan ensin ReLU-malli
+relu_trained = relu_model.fit(X_train, y_train, epochs=50, batch_size=8, verbose=1, validation_data=(X_val, y_val))
+
+# Sitten taas sigmoid
+sigmoid_trained = sigmoid_model.fit(X_train, y_train, epochs=50, batch_size=8, verbose=1, validation_data=(X_val, y_val))
+
+# Ja viimeisenä vielä hyperbolinen tangentti
+tanh_trained = tanh_model.fit(X_train, y_train, epochs=50, batch_size=8, verbose=1, validation_data=(X_val, y_val))
+
+
+## VIIDES VAIHE: MALLIN SUORITUSKYVYN ARVIOINTI
+
+# Käydään läpi jokaisen mallin suorituskyky validaatioaineistolla ja piirretään havainnollistavat kuvaajat
+# Ensin ReLU
+mse, mae = relu_model.evaluate(X_val, y_val, verbose=0)   # Arvioidaan mallin ennustetarkkuus ja tulostetaan keskineliövirhe ja absoluuttinen keskivirhe
+print(f"ReLU:n validaatioaineiston MSE: {mse:.4f} ja MAE: {mae:.4f}")
+
+# Piirretään ensin tappiofunktion kehitys koulutuksen edetessä
+plt.plot(relu_trained.history['loss'], label = 'Koulutuksen keskineliövirhe')
+plt.plot(relu_trained.history['val_loss'], label = 'Validaation keskineliövirhe')
+plt.xlabel('Epookki')
+plt.ylabel('Keskineliövirhe')
+plt.legend()
+plt.show()
+
+# Piirretään sama absoluuttiselle keskivirheelle
+plt.plot(relu_trained.history['mae'], label = 'Koulutuksen absoluuttinen keskivirhe')
+plt.plot(relu_trained.history['val_mae'], label = 'Validaation absoluuttinen keskivirhe')
+plt.xlabel('Epookki')
+plt.ylabel('Absoluuttinen keskivirhe')
+plt.legend()
+plt.show()
+
+# Tehdään sama seuraavaksi sigmoidille
+mse, mae = sigmoid_model.evaluate(X_val, y_val, verbose=0)
+print(f"Sigmoidin validaatioaineiston MSE: {mse:.4f} ja MAE: {mae:.4f}")
+
+# Piirretään sitten samat kuvaajat kuin ReLU:lle
+plt.plot(sigmoid_trained.history['loss'], label = 'Koulutuksen keskineliövirhe')
+plt.plot(sigmoid_trained.history['val_loss'], label = 'Validaation keskineliövirhe')
+plt.xlabel('Epookki')
+plt.ylabel('Keskineliövirhe')
+plt.legend()
+plt.show()
+
+plt.plot(sigmoid_trained.history['mae'], label = 'Koulutuksen absoluuttinen keskivirhe')
+plt.plot(sigmoid_trained.history['val_mae'], label = 'Validaation absoluuttinen keskivirhe')
+plt.xlabel('Epookki')
+plt.ylabel('Absoluuttinen keskivirhe')
+plt.legend()
+plt.show()
+
+# Ja vielä viimeisenä hyperboliselle tangentille
+mse, mae = tanh_model.evaluate(X_val, y_val, verbose=0)
+print(f"Hyperbolisen tangentin validaatioaineiston MSE: {mse:.4f} ja MAE: {mae:.4f}")
+
+plt.plot(tanh_trained.history['loss'], label = 'Koulutuksen keskineliövirhe')
+plt.plot(tanh_trained.history['val_loss'], label = 'Validaation keskineliövirhe')
+plt.xlabel('Epookki')
+plt.ylabel('Keskineliövirhe')
+plt.legend()
+plt.show()
+
+plt.plot(tanh_trained.history['mae'], label = 'Koulutuksen absoluuttinen keskivirhe')
+plt.plot(tanh_trained.history['val_mae'], label = 'Validaation absoluuttinen keskivirhe')
+plt.xlabel('Epookki')
+plt.ylabel('Absoluuttinen keskivirhe')
+plt.legend()
+plt.show()
+
+# Koska hyperbolisen tangentin ja sigmoidin virhe oli vielä niin suuri niin ajetaan 200 epookin koulutus kummallekin mallille ja katsotaan tulokset.
+
+extended_sigmoid_trained = sigmoid_model.fit(X_train, y_train, epochs=1000, batch_size=8, verbose=1, validation_data=(X_val, y_val))
+extended_tanh_trained = tanh_model.fit(X_train, y_train, epochs=200, batch_size=8, verbose=1, validation_data=(X_val, y_val))
+
+mse, mae = sigmoid_model.evaluate(X_val, y_val, verbose=0)
+print(f"200:n Epookin sigmoidin validaatioaineiston MSE: {mse:.4f} ja MAE: {mae:.4f}")
+
+mse, mae = tanh_model.evaluate(X_val, y_val, verbose=0)
+print(f"200:n Epookin tanh validaatioaineiston MSE: {mse:.4f} ja MAE: {mae:.4f}")
+
+plt.plot(extended_sigmoid_trained.history['loss'], label = 'Koulutuksen keskineliövirhe')
+plt.plot(extended_sigmoid_trained.history['val_loss'], label = 'Validaation keskineliövirhe')
+plt.xlabel('Epookki')
+plt.ylabel('Keskineliövirhe')
+plt.legend()
+plt.show()
+
+plt.plot(extended_tanh_trained.history['loss'], label = 'Koulutuksen keskineliövirhe')
+plt.plot(extended_tanh_trained.history['val_loss'], label = 'Validaation keskineliövirhe')
+plt.xlabel('Epookki')
+plt.ylabel('Keskineliövirhe')
+plt.legend()
+plt.show()
